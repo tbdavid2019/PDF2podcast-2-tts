@@ -210,4 +210,4 @@ speaker-2: 大家好，我是 Cordelia...
 
 if __name__ == "__main__":
     demo = create_gradio_interface()
-    demo.launch()
+    demo.launch(share=True)
