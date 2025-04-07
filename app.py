@@ -11,6 +11,7 @@ STANDARD_AUDIO_MODELS = [
     "tts-1",
     "tts-1-hd",
 ]
+
 STANDARD_VOICES = [
     "alloy",
     "echo",
@@ -40,50 +41,6 @@ def get_mp3(text: str, voice: str, audio_model: str, audio_api_key: str) -> byte
         print(f"Error generating audio: {e}")
         raise
 
-def optimize_script(script_lines):
-    """
-    優化腳本處理 - 合併相同說話者的連續文本
-    """
-    optimized = []
-    current_speaker = None
-    current_voice = None
-    current_text = ""
-    
-    for line in script_lines:
-        line = line.strip()
-        if not line:
-            continue
-            
-        # 確定當前行的說話者和文本
-        if line.lower().startswith("speaker-1:"):
-            speaker = "speaker-1"
-            text = line.split(":", 1)[1].strip()
-        elif line.lower().startswith("speaker-2:"):
-            speaker = "speaker-2"
-            text = line.split(":", 1)[1].strip()
-        else:
-            speaker = "speaker-1"  # 預設使用說話者1
-            text = line
-            
-        # 如果說話者變了，保存之前的文本並開始新的
-        if speaker != current_speaker and current_text:
-            optimized.append((current_speaker, current_text))
-            current_text = text
-            current_speaker = speaker
-        else:
-            # 相同說話者，合併文本（加空格）
-            if current_text:
-                current_text += " " + text
-            else:
-                current_text = text
-                current_speaker = speaker
-                
-    # 添加最後一個說話者的文本
-    if current_text:
-        optimized.append((current_speaker, current_text))
-        
-    return optimized
-
 def generate_audio_from_script(
     script: str,
     audio_api_key: str,
@@ -92,23 +49,38 @@ def generate_audio_from_script(
     speaker2_voice: str = "nova",
 ) -> tuple[bytes, str]:
     """
-    從腳本生成音頻，支援兩個說話者，並優化 API 調用
+    從腳本生成音頻，支援兩個說話者
     """
     combined_audio = b""
     status_log = []
     
-    # 優化腳本處理
-    optimized_script = optimize_script(script.splitlines())
-    
-    # 處理每一段
-    for speaker, text in optimized_script:
-        voice_to_use = speaker1_voice if speaker == "speaker-1" else speaker2_voice
-        status_log.append(f"[{'說話者1' if speaker == 'speaker-1' else '說話者2'}] {text}")
+    # 處理每一行
+    for line in script.splitlines():
+        line = line.strip()
+        if not line:
+            continue
+        
+        # 預設使用 speaker 1
+        voice_to_use = speaker1_voice
+        text_to_speak = line
+        
+        # 檢查說話者標記
+        if line.lower().startswith("speaker-1:"):
+            voice_to_use = speaker1_voice
+            text_to_speak = line.split(":", 1)[1].strip()
+            status_log.append(f"[說話者1] {text_to_speak}")
+        elif line.lower().startswith("speaker-2:"):
+            voice_to_use = speaker2_voice
+            text_to_speak = line.split(":", 1)[1].strip()
+            status_log.append(f"[說話者2] {text_to_speak}")
+        else:
+            # 如果沒有說話者標記，使用說話者1
+            status_log.append(f"[說話者1] {text_to_speak}")
         
         try:
-            # 生成這一段的音頻
+            # 生成這一行的音頻
             audio_chunk = get_mp3(
-                text,
+                text_to_speak,
                 voice_to_use,
                 audio_model,
                 audio_api_key
@@ -157,11 +129,11 @@ def create_gradio_interface():
                 script_input = gr.Textbox(
                     label="輸入腳本 | Input Script",
                     placeholder="""請貼上腳本內容，格式如下：
+
 speaker-1: 歡迎來到 David888 Podcast，我是 David...
 speaker-2: 大家好，我是 Cordelia...
-沒有標記說話者的行會預設使用說話者1的聲音。
 
-提示：相同說話者的連續文本將自動合併處理，提高生成效率。""",
+沒有標記說話者的行會預設使用說話者1的聲音。""",
                     lines=20
                 )
                 
