@@ -4,6 +4,4 @@ openai
 loguru
 promptic
 tenacity
-PyMuPDF
-ebooklib 
 bs4
