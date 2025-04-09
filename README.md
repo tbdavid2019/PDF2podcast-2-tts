@@ -12,7 +12,7 @@ short_description: 原tbdavid2019/PDF2podcast拆出的語音生成(2)
 
 Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
 
----
+
 
 # TTS Generator (語音合成器)
 
