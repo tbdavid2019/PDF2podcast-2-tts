@@ -9,11 +9,6 @@ app_file: app.py
 pinned: false
 short_description: 原tbdavid2019/PDF2podcast拆出的語音生成(2)
 ---
-
-Check out the configuration reference at https://huggingface.co/docs/hub/spaces-config-reference
-
-
-
 # TTS Generator (語音合成器)
 
 這是一個基於OpenAI TTS API的語音合成應用程式，可將文字腳本轉換為自然流暢的語音。應用程式支援雙說話者對話，並提供簡潔的網頁界面，適合製作播客、有聲書或對話式內容。
