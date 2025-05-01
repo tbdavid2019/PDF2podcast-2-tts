@@ -5,6 +5,7 @@ from tempfile import NamedTemporaryFile
 import time
 import gradio as gr
 from openai import OpenAI
+from pydub import AudioSegment
 
 # 标准音频模型和声音选项
 STANDARD_AUDIO_MODELS = [
@@ -80,6 +81,7 @@ def generate_audio_from_script(
     audio_model: str = "tts-1",
     speaker1_voice: str = "onyx",
     speaker2_voice: str = "nova",
+    volume_boost: float = 0,
 ) -> tuple[bytes, str]:
     """从脚本生成音频，支持两个说话者，并优化 API 调用"""
     combined_audio = b""
@@ -105,6 +107,30 @@ def generate_audio_from_script(
         except Exception as e:
             status_log.append(f"[错误] 无法生成音频: {str(e)}")
     
+    # 如果需要調整音量
+    if volume_boost > 0:
+        try:
+            # 將二進制數據轉換為 AudioSegment
+            with NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
+                temp_file.write(combined_audio)
+                temp_file_path = temp_file.name
+            
+            # 讀取音頻並調整音量
+            audio = AudioSegment.from_mp3(temp_file_path)
+            audio = audio + volume_boost  # 增加音量 (dB)
+            
+            # 將調整後的音頻轉換回二進制數據
+            output = io.BytesIO()
+            audio.export(output, format="mp3")
+            combined_audio = output.getvalue()
+            
+            # 刪除臨時文件
+            os.unlink(temp_file_path)
+            
+            status_log.append(f"[音量] 已增加 {volume_boost} dB")
+        except Exception as e:
+            status_log.append(f"[警告] 音量調整失敗: {str(e)}")
+    
     return combined_audio, "\n".join(status_log)
 
 def save_audio_file(audio_data: bytes) -> str:
@@ -125,7 +151,7 @@ def save_audio_file(audio_data: bytes) -> str:
     temp_file.close()
     return temp_file.name
 
-def process_and_save_audio(script, api_key, model, voice1, voice2):
+def process_and_save_audio(script, api_key, model, voice1, voice2, volume_boost):
     """处理音频生成并保存文件"""
     try:
         audio_data, status_log = generate_audio_from_script(
@@ -133,7 +159,8 @@ def process_and_save_audio(script, api_key, model, voice1, voice2):
             api_key,
             model,
             voice1,
-            voice2
+            voice2,
+            volume_boost
         )
         audio_path = save_audio_file(audio_data)
         return audio_path, status_log
@@ -181,6 +208,15 @@ speaker-2: 大家好，我是 Cordelia...
                         choices=STANDARD_VOICES,
                         value="nova"
                     )
+                
+                volume_boost = gr.Slider(
+                    label="音量增益 (dB) | Volume Boost (dB)",
+                    minimum=0,
+                    maximum=20,
+                    value=6,
+                    step=1,
+                    info="增加音頻音量，單位為分貝(dB)。建議值：6-10 dB"
+                )
                 generate_button = gr.Button("生成音频 | Generate Audio")
             with gr.Column(scale=1):
                 # 输出区
@@ -202,7 +238,8 @@ speaker-2: 大家好，我是 Cordelia...
                 api_key,
                 audio_model,
                 speaker1_voice,
-                speaker2_voice
+                speaker2_voice,
+                volume_boost
             ],
             outputs=[audio_output, status_output]
         )
