@@ -6,6 +6,13 @@ import time
 import gradio as gr
 from openai import OpenAI
 from pydub import AudioSegment
+from dotenv import load_dotenv
+
+# 加載環境變量
+load_dotenv()
+
+# 獲取 OpenAI API Key (如果在環境變量中設置了)
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
 
 # 标准音频模型和声音选项
 STANDARD_AUDIO_MODELS = [

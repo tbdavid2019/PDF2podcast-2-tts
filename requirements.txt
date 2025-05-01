@@ -6,3 +6,6 @@ promptic
 tenacity
 bs4
 pydub
+fastapi
+uvicorn
+python-dotenv
