@@ -112,11 +112,13 @@ def generate_audio_from_script(
     volume_boost: float = 0,
 ) -> tuple[bytes, list]:
     """從腳本生成音頻，支持兩個說話者，並優化 API 調用"""
-    combined_audio = b""
     status_log = []
     
     # 優化腳本處理
     optimized_script = optimize_script(script)
+    
+    # 使用 pydub 處理音頻合併
+    combined_segment = None
     
     # 處理每一段
     for speaker, text in optimized_script:
@@ -131,34 +133,45 @@ def generate_audio_from_script(
                 audio_model,
                 audio_api_key
             )
-            combined_audio += audio_chunk
-        except Exception as e:
-            status_log.append(f"[錯誤] 無法生成音頻: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"無法生成音頻: {str(e)}")
-    
-    # 如果需要調整音量
-    if volume_boost > 0:
-        try:
+            
             # 將二進制數據轉換為 AudioSegment
             with NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
-                temp_file.write(combined_audio)
+                temp_file.write(audio_chunk)
                 temp_file_path = temp_file.name
             
-            # 讀取音頻並調整音量
-            audio = AudioSegment.from_mp3(temp_file_path)
-            audio = audio + volume_boost  # 增加音量 (dB)
-            
-            # 將調整後的音頻轉換回二進制數據
-            output = io.BytesIO()
-            audio.export(output, format="mp3")
-            combined_audio = output.getvalue()
+            # 讀取音頻
+            chunk_segment = AudioSegment.from_mp3(temp_file_path)
             
             # 刪除臨時文件
             os.unlink(temp_file_path)
             
+            # 合併音頻段
+            if combined_segment is None:
+                combined_segment = chunk_segment
+            else:
+                combined_segment += chunk_segment
+        except Exception as e:
+            status_log.append(f"[錯誤] 無法生成音頻: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"無法生成音頻: {str(e)}")
+    
+    # 如果沒有生成任何音頻段
+    if combined_segment is None:
+        status_log.append("[錯誤] 沒有生成任何音頻")
+        return b"", status_log
+    
+    # 如果需要調整音量
+    if volume_boost > 0:
+        try:
+            # 調整音量
+            combined_segment = combined_segment + volume_boost  # 增加音量 (dB)
             status_log.append(f"[音量] 已增加 {volume_boost} dB")
         except Exception as e:
             status_log.append(f"[警告] 音量調整失敗: {str(e)}")
+    
+    # 將 AudioSegment 轉換為二進制數據
+    output = io.BytesIO()
+    combined_segment.export(output, format="mp3")
+    combined_audio = output.getvalue()
     
     return combined_audio, status_log
 
