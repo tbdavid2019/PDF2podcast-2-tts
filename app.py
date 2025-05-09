@@ -67,20 +67,53 @@ def optimize_script(script):
 
 def get_mp3(text: str, voice: str, audio_model: str, audio_api_key: str) -> bytes:
     """使用 OpenAI TTS API 生成音频"""
+    # 检查文本长度，OpenAI TTS API 有 4096 个标记的限制
+    # 大约 1000 个汉字约等于 2000-3000 个标记，为安全起见，我们将限制设为 1000 个字符
+    MAX_TEXT_LENGTH = 1000
+    
     client = OpenAI(api_key=audio_api_key)
-    try:
-        with client.audio.speech.with_streaming_response.create(
-            model=audio_model,
-            voice=voice,
-            input=text,
-        ) as response:
-            with io.BytesIO() as file:
-                for chunk in response.iter_bytes():
-                    file.write(chunk)
-                return file.getvalue()
-    except Exception as e:
-        print(f"Error generating audio: {e}")
-        raise
+    
+    # 如果文本长度超过限制，分割文本
+    if len(text) > MAX_TEXT_LENGTH:
+        print(f"Text too long ({len(text)} chars), splitting into chunks")
+        # 将文本分割成更小的块
+        text_chunks = []
+        for i in range(0, len(text), MAX_TEXT_LENGTH):
+            text_chunks.append(text[i:i + MAX_TEXT_LENGTH])
+        
+        # 为每个块生成音频并合并
+        combined_audio = b""
+        for chunk in text_chunks:
+            try:
+                with client.audio.speech.with_streaming_response.create(
+                    model=audio_model,
+                    voice=voice,
+                    input=chunk,
+                ) as response:
+                    with io.BytesIO() as file:
+                        for audio_chunk in response.iter_bytes():
+                            file.write(audio_chunk)
+                        combined_audio += file.getvalue()
+            except Exception as e:
+                print(f"Error generating audio for chunk: {e}")
+                raise
+        
+        return combined_audio
+    else:
+        # 原始逻辑，处理短文本
+        try:
+            with client.audio.speech.with_streaming_response.create(
+                model=audio_model,
+                voice=voice,
+                input=text,
+            ) as response:
+                with io.BytesIO() as file:
+                    for chunk in response.iter_bytes():
+                        file.write(chunk)
+                    return file.getvalue()
+        except Exception as e:
+            print(f"Error generating audio: {e}")
+            raise
 
 def generate_audio_from_script(
     script: str,
