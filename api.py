@@ -21,6 +21,8 @@ OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 
 # 標準音頻模型和聲音選項
 STANDARD_AUDIO_MODELS = [
+    "gpt-4o-mini-tts",
+    "gpt-4o-audio-preview",
     "tts-1",
     "tts-1-hd",
 ]
@@ -31,6 +33,8 @@ STANDARD_VOICES = [
     "onyx",
     "nova",
     "shimmer",
+    "coral",
+    "sage",
 ]
 
 # 創建 FastAPI 應用
@@ -86,7 +90,7 @@ def optimize_script(script):
         
     return optimized
 
-def get_mp3(text: str, voice: str, audio_model: str, api_key: str) -> bytes:
+def get_mp3(text: str, voice: str, audio_model: str, api_key: str, instructions: str = None) -> bytes:
     """使用 OpenAI TTS API 生成音頻"""
     # 檢查文本長度，OpenAI TTS API 有 4096 個標記的限制
     # 大約 1000 個漢字約等於 2000-3000 個標記，為安全起見，我們將限制設為 1000 個字符
@@ -106,11 +110,16 @@ def get_mp3(text: str, voice: str, audio_model: str, api_key: str) -> bytes:
         combined_audio = b""
         for chunk in text_chunks:
             try:
-                with client.audio.speech.with_streaming_response.create(
-                    model=audio_model,
-                    voice=voice,
-                    input=chunk,
-                ) as response:
+                # 構建 API 參數
+                api_params = {
+                    "model": audio_model,
+                    "voice": voice,
+                    "input": chunk,
+                }
+                if instructions:
+                    api_params["instructions"] = instructions
+                
+                with client.audio.speech.with_streaming_response.create(**api_params) as response:
                     with io.BytesIO() as file:
                         for audio_chunk in response.iter_bytes():
                             file.write(audio_chunk)
@@ -123,11 +132,16 @@ def get_mp3(text: str, voice: str, audio_model: str, api_key: str) -> bytes:
     else:
         # 原始邏輯，處理短文本
         try:
-            with client.audio.speech.with_streaming_response.create(
-                model=audio_model,
-                voice=voice,
-                input=text,
-            ) as response:
+            # 構建 API 參數
+            api_params = {
+                "model": audio_model,
+                "voice": voice,
+                "input": text,
+            }
+            if instructions:
+                api_params["instructions"] = instructions
+            
+            with client.audio.speech.with_streaming_response.create(**api_params) as response:
                 with io.BytesIO() as file:
                     for chunk in response.iter_bytes():
                         file.write(chunk)
@@ -139,10 +153,12 @@ def get_mp3(text: str, voice: str, audio_model: str, api_key: str) -> bytes:
 def generate_audio_from_script(
     script: str,
     audio_api_key: str,
-    audio_model: str = "tts-1",
+    audio_model: str = "gpt-4o-mini-tts",
     speaker1_voice: str = "onyx",
     speaker2_voice: str = "nova",
     volume_boost: float = 0,
+    speaker1_instructions: str = "保持活潑愉快的語氣",
+    speaker2_instructions: str = "保持活潑愉快的語氣",
 ) -> tuple[bytes, list]:
     """從腳本生成音頻，支持兩個說話者，並優化 API 調用"""
     status_log = []
@@ -156,6 +172,7 @@ def generate_audio_from_script(
     # 處理每一段
     for speaker, text in optimized_script:
         voice_to_use = speaker1_voice if speaker == "speaker-1" else speaker2_voice
+        instructions_to_use = speaker1_instructions if speaker == "speaker-1" else speaker2_instructions
         status_log.append(f"[{speaker}] {text}")
         
         try:
@@ -164,7 +181,8 @@ def generate_audio_from_script(
                 text,
                 voice_to_use,
                 audio_model,
-                audio_api_key
+                audio_api_key,
+                instructions_to_use
             )
             
             # 將二進制數據轉換為 AudioSegment
@@ -230,10 +248,12 @@ def save_audio_file(audio_data: bytes) -> str:
 class TTSRequest(BaseModel):
     script: str
     api_key: Optional[str] = None
-    model: Optional[str] = "tts-1"
+    model: Optional[str] = "gpt-4o-mini-tts"
     speaker1_voice: Optional[str] = "onyx"
     speaker2_voice: Optional[str] = "nova"
     volume_boost: Optional[float] = 6.0
+    speaker1_instructions: Optional[str] = "保持活潑愉快的語氣"
+    speaker2_instructions: Optional[str] = "保持活潑愉快的語氣"
     return_url: Optional[bool] = False
 
 # API 端點
@@ -244,9 +264,11 @@ async def generate_audio(request: TTSRequest):
     
     - **script**: 腳本內容，格式為 "speaker-1: 文本" 或 "speaker-2: 文本"
     - **api_key**: OpenAI API Key (可選，如果未提供則使用環境變量)
-    - **model**: 音頻模型 (可選，默認為 "tts-1")
-    - **speaker1_voice**: 說話者1的聲音 (可選，默認為 "onyx")
-    - **speaker2_voice**: 說話者2的聲音 (可選，默認為 "nova")
+    - **model**: 音頻模型 (可選，默認為 "gpt-4o-mini-tts")
+    - **speaker1_voice**: 說話者1的聲音 (男角，可選，默認為 "onyx")
+    - **speaker2_voice**: 說話者2的聲音 (女角，可選，默認為 "nova")
+    - **speaker1_instructions**: 說話者1的語氣指示 (可選，默認為 "保持活潑愉快的語氣")
+    - **speaker2_instructions**: 說話者2的語氣指示 (可選，默認為 "保持活潑愉快的語氣")
     - **volume_boost**: 音量增益 dB (可選，默認為 6.0)
     - **return_url**: 是否返回音頻文件的 URL (可選，默認為 False)
     """
@@ -264,7 +286,9 @@ async def generate_audio(request: TTSRequest):
             request.model,
             request.speaker1_voice,
             request.speaker2_voice,
-            request.volume_boost
+            request.volume_boost,
+            request.speaker1_instructions,
+            request.speaker2_instructions
         )
         
         # 保存音頻文件
