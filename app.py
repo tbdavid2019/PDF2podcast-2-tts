@@ -34,6 +34,7 @@ STANDARD_VOICES = [
 
 # 優化腳本處理 - 合並相同說話者連續文本
 def optimize_script(script):
+    print("🔄 開始優化腳本處理...")
     lines = [line.strip() for line in script.splitlines() if line.strip()]
     optimized = []
     current_speaker = None
@@ -67,10 +68,13 @@ def optimize_script(script):
     if current_text:
         optimized.append((current_speaker, current_text))
         
+    print(f"✅ 腳本優化完成，共 {len(optimized)} 段對話")
     return optimized
 
 def get_mp3(text: str, voice: str, audio_model: str, audio_api_key: str, instructions: str = None) -> bytes:
     """使用 OpenAI TTS API 生成音頻"""
+    print(f"🎤 開始生成音頻: 長度 {len(text)} 字符, 聲音: {voice}, 模型: {audio_model}")
+    
     # 檢查文本長度，OpenAI TTS API 有 4096 個標記的限制
     # 大約 1000 個漢字約等於 2000-3000 個標記，為安全起見，我們將限制設為 1000 個字符
     MAX_TEXT_LENGTH = 1000
@@ -79,15 +83,18 @@ def get_mp3(text: str, voice: str, audio_model: str, audio_api_key: str, instruc
     
     # 如果文本長度超過限制，分割文本
     if len(text) > MAX_TEXT_LENGTH:
-        print(f"Text too long ({len(text)} chars), splitting into chunks")
+        print(f"📝 文本過長 ({len(text)} 字符)，分割成多個區塊")
         # 將文本分割成更小的塊
         text_chunks = []
         for i in range(0, len(text), MAX_TEXT_LENGTH):
             text_chunks.append(text[i:i + MAX_TEXT_LENGTH])
         
+        print(f"📦 共分割成 {len(text_chunks)} 個區塊")
+        
         # 為每個塊生成音頻並合並
         combined_audio = b""
-        for chunk in text_chunks:
+        for i, chunk in enumerate(text_chunks, 1):
+            print(f"🔄 處理區塊 {i}/{len(text_chunks)}: {len(chunk)} 字符")
             try:
                 # 構建 API 參數
                 api_params = {
@@ -97,16 +104,21 @@ def get_mp3(text: str, voice: str, audio_model: str, audio_api_key: str, instruc
                 }
                 if instructions:
                     api_params["instructions"] = instructions
+                    print(f"💬 使用語氣指示: {instructions}")
                 
+                print(f"📡 調用 OpenAI TTS API...")
                 with client.audio.speech.with_streaming_response.create(**api_params) as response:
                     with io.BytesIO() as file:
                         for audio_chunk in response.iter_bytes():
                             file.write(audio_chunk)
-                        combined_audio += file.getvalue()
+                        chunk_audio = file.getvalue()
+                        combined_audio += chunk_audio
+                        print(f"✅ 區塊 {i} 生成完成: {len(chunk_audio)} bytes")
             except Exception as e:
-                print(f"Error generating audio for chunk: {e}")
+                print(f"❌ 區塊 {i} 生成失敗: {e}")
                 raise
         
+        print(f"🎵 所有區塊合並完成，總大小: {len(combined_audio)} bytes")
         return combined_audio
     else:
         # 原始邏輯，處理短文本
@@ -119,14 +131,18 @@ def get_mp3(text: str, voice: str, audio_model: str, audio_api_key: str, instruc
             }
             if instructions:
                 api_params["instructions"] = instructions
+                print(f"💬 使用語氣指示: {instructions}")
             
+            print(f"📡 調用 OpenAI TTS API...")
             with client.audio.speech.with_streaming_response.create(**api_params) as response:
                 with io.BytesIO() as file:
-                    for chunk in response.iter_bytes():
-                        file.write(chunk)
-                    return file.getvalue()
+                    for audio_chunk in response.iter_bytes():
+                        file.write(audio_chunk)
+                    audio_data = file.getvalue()
+                    print(f"✅ 音頻生成完成: {len(audio_data)} bytes")
+                    return audio_data
         except Exception as e:
-            print(f"Error generating audio: {e}")
+            print(f"❌ 音頻生成失敗: {e}")
             raise
 
 def generate_audio_from_script(
@@ -140,22 +156,35 @@ def generate_audio_from_script(
     speaker2_instructions: str = "保持活潑愉快的語氣",
 ) -> tuple[bytes, str]:
     """從腳本生成音頻，支持兩個說話者，並優化 API 調用"""
+    print("🎬 開始從腳本生成音頻")
+    print(f"📜 腳本總長度: {len(script)} 字符")
+    print(f"🎤 說話者聲音: 說話者1={speaker1_voice}, 說話者2={speaker2_voice}")
+    print(f"🔊 音量增強: {volume_boost} dB")
+    
     status_log = []
     
     # 優化腳本處理
+    print("🔍 優化腳本內容...")
     optimized_script = optimize_script(script)
+    print(f"✅ 腳本優化完成，共 {len(optimized_script)} 個片段")
     
     # 使用 pydub 處理音頻合並
     combined_segment = None
     
     # 處理每一段
-    for speaker, text in optimized_script:
+    total_segments = len(optimized_script)
+    print(f"🎵 開始處理 {total_segments} 個音頻片段")
+    
+    for i, (speaker, text) in enumerate(optimized_script, 1):
         voice_to_use = speaker1_voice if speaker == "speaker-1" else speaker2_voice
         instructions_to_use = speaker1_instructions if speaker == "speaker-1" else speaker2_instructions
+        
+        print(f"🎭 處理片段 {i}/{total_segments}: {speaker} ({len(text)} 字符)")
         status_log.append(f"[{speaker}] {text}")
         
         try:
             # 生成這一段的音頻
+            print(f"📡 生成 {speaker} 的音頻...")
             audio_chunk = get_mp3(
                 text,
                 voice_to_use,
@@ -163,6 +192,8 @@ def generate_audio_from_script(
                 audio_api_key,
                 instructions_to_use
             )
+            
+            print(f"✅ {speaker} 音頻生成完成: {len(audio_chunk)} bytes")
             
             # 將二進制數據轉換為 AudioSegment
             with NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
@@ -178,40 +209,63 @@ def generate_audio_from_script(
             # 合並音頻段
             if combined_segment is None:
                 combined_segment = chunk_segment
+                print("🔗 創建第一個音頻片段")
             else:
                 combined_segment += chunk_segment
+                print(f"🔗 已合並片段 {i}/{total_segments}")
+                
         except Exception as e:
+            error_msg = f"❌ 片段 {i} ({speaker}) 生成失敗: {str(e)}"
+            print(error_msg)
             status_log.append(f"[錯誤] 無法生成音頻: {str(e)}")
+            raise
     
     # 如果沒有生成任何音頻段
     if combined_segment is None:
+        error_msg = "❌ 沒有生成任何音頻"
+        print(error_msg)
         status_log.append("[錯誤] 沒有生成任何音頻")
         return b"", "\n".join(status_log)
     
     # 如果需要調整音量
     if volume_boost > 0:
         try:
+            print(f"🔊 調整音量 +{volume_boost} dB...")
             # 調整音量
             combined_segment = combined_segment + volume_boost  # 增加音量 (dB)
             status_log.append(f"[音量] 已增加 {volume_boost} dB")
+            print("✅ 音量調整完成")
         except Exception as e:
+            warning_msg = f"⚠️ 音量調整失敗: {str(e)}"
+            print(warning_msg)
             status_log.append(f"[警告] 音量調整失敗: {str(e)}")
     
     # 將 AudioSegment 轉換為二進制數據
+    print("💾 導出最終音頻文件...")
     output = io.BytesIO()
     combined_segment.export(output, format="mp3")
     combined_audio = output.getvalue()
     
+    print(f"🎉 腳本音頻生成完成！最終大小: {len(combined_audio)} bytes")
     return combined_audio, "\n".join(status_log)
 
 def save_audio_file(audio_data: bytes) -> str:
     """將音頻數據保存為臨時文件"""
+    print("💾 開始保存音頻文件...")
+    
     temp_dir = Path("./temp_audio")
     temp_dir.mkdir(exist_ok=True)
+    
     # 清理舊文件
+    old_files_count = 0
     for old_file in temp_dir.glob("*.mp3"):
         if old_file.stat().st_mtime < (time.time() - 24*60*60):  # 24小時前的文件
             old_file.unlink()
+            old_files_count += 1
+    
+    if old_files_count > 0:
+        print(f"🧹 清理了 {old_files_count} 個舊的臨時文件")
+    
     # 創建新的臨時文件
     temp_file = NamedTemporaryFile(
         dir=temp_dir,
@@ -220,6 +274,8 @@ def save_audio_file(audio_data: bytes) -> str:
     )
     temp_file.write(audio_data)
     temp_file.close()
+    
+    print(f"✅ 音頻文件已保存: {temp_file.name} ({len(audio_data)} bytes)")
     return temp_file.name
 
 def process_and_save_audio(script, api_key, model, voice1, voice2, volume_boost, instr1, instr2):
