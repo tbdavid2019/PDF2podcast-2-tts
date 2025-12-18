@@ -5,6 +5,7 @@ from tempfile import NamedTemporaryFile
 import time
 import gradio as gr
 import boto3
+import requests
 from openai import OpenAI
 from pydub import AudioSegment
 from dotenv import load_dotenv
@@ -69,6 +70,9 @@ Gemini 聲音備註：
 POLLY_VOICE_DEFAULT = "Zhiyu"
 POLLY_REGION_DEFAULT = os.getenv("AWS_REGION", "ap-northeast-1")
 POLLY_VOICE_NOTES = "AWS Polly 中文目前僅女聲 Zhiyu，雙說話者將共用此聲音。需要 AWS Access Key / Secret / Region 才能使用。"
+TAI_TTS_URL = "https://learn-language.tokyo/taigiTTS/taigi-text-to-speech"
+TAI_TTS_MODEL_DEFAULT = "model6"
+TAI_VOICE_NOTES = "台語 TTS (Taiwanese) 目前僅單一女聲，無需 API Key，模型預設 model6。雙說話者將共用同一聲音。"
 
 # 優化腳本處理 - 合並相同說話者連續文本
 def optimize_script(script):
@@ -206,6 +210,36 @@ def get_polly_mp3(text: str, polly_voice: str, polly_region: str, polly_access_k
         return audio_bytes
     except Exception as e:
         print(f"❌ Polly 音頻生成失敗: {e}")
+        raise
+
+
+def get_tai_tts_mp3(text: str, model: str = TAI_TTS_MODEL_DEFAULT) -> bytes:
+    """使用台語 TTS 服務生成音頻，無需金鑰"""
+    print(f"🎤 台語 TTS 生成音頻: 長度 {len(text)} 字符, 模型: {model}")
+    try:
+        # 第一步：POST 取得 audio_url
+        resp = requests.post(
+            TAI_TTS_URL,
+            json={"text": text, "model": model},
+            headers={"content-type": "application/json", "origin": "https://learn-language.tokyo"},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        result = resp.json()
+        audio_url = result.get("audio_url")
+        if not audio_url:
+            raise RuntimeError(f"台語 TTS 回應中缺少 audio_url: {result}")
+        
+        print(f"🔗 取得音頻 URL: {audio_url}")
+        
+        # 第二步：下載 WAV 音頻檔案
+        audio_resp = requests.get(audio_url, timeout=60)
+        audio_resp.raise_for_status()
+        audio_bytes = audio_resp.content
+        print(f"✅ 台語 TTS 音頻下載完成: {len(audio_bytes)} bytes (WAV 格式)")
+        return audio_bytes
+    except Exception as e:
+        print(f"❌ 台語 TTS 音頻生成失敗: {e}")
         raise
 
 
@@ -484,6 +518,75 @@ def generate_polly_audio_from_script(
     print(f"🎉 Polly 腳本音頻生成完成！最終大小: {len(combined_audio)} bytes")
     return combined_audio, "\n".join(status_log)
 
+
+def generate_tai_audio_from_script(
+    script: str,
+    tai_model: str = TAI_TTS_MODEL_DEFAULT,
+    volume_boost: float = 0,
+) -> tuple[bytes, str]:
+    print("🎬 開始使用台語 TTS 從腳本生成音頻")
+    print(f"📜 腳本總長度: {len(script)} 字符")
+    print(f"🎤 模型: {tai_model} (僅單一女聲)")
+
+    status_log = []
+    optimized_script = optimize_script(script)
+    print(f"✅ 腳本優化完成，共 {len(optimized_script)} 個片段")
+
+    combined_segment = None
+    total_segments = len(optimized_script)
+    print(f"🎵 開始處理 {total_segments} 個音頻片段 (台語 TTS)")
+
+    for i, (speaker, text) in enumerate(optimized_script, 1):
+        print(f"🎭 處理片段 {i}/{total_segments}: {speaker} ({len(text)} 字符)")
+        status_log.append(f"[TaiTTS][{speaker}] {text}")
+
+        try:
+            audio_bytes = get_tai_tts_mp3(text, tai_model)
+
+            # 台語 TTS 回傳 WAV 格式，需用 from_wav
+            with NamedTemporaryFile(suffix=".wav", delete=False) as temp_file:
+                temp_file.write(audio_bytes)
+                temp_file_path = temp_file.name
+
+            chunk_segment = AudioSegment.from_wav(temp_file_path)
+            os.unlink(temp_file_path)
+
+            if combined_segment is None:
+                combined_segment = chunk_segment
+                print("🔗 創建第一個 台語 TTS 音頻片段")
+            else:
+                combined_segment += chunk_segment
+                print(f"🔗 已合並 台語 TTS 片段 {i}/{total_segments}")
+        except Exception as e:
+            error_msg = f"❌ 台語 TTS 片段 {i} 生成失敗: {str(e)}"
+            print(error_msg)
+            status_log.append(f"[錯誤] 無法生成 台語 TTS 音頻: {str(e)}")
+            raise
+
+    if combined_segment is None:
+        error_msg = "❌ 台語 TTS 沒有生成任何音頻"
+        print(error_msg)
+        status_log.append("[錯誤] 沒有生成任何音頻")
+        return b"", "\n".join(status_log)
+
+    if volume_boost > 0:
+        try:
+            print(f"🔊 調整音量 +{volume_boost} dB (台語 TTS)...")
+            combined_segment = combined_segment + volume_boost
+            status_log.append(f"[音量] 已增加 {volume_boost} dB")
+            print("✅ 音量調整完成 (台語 TTS)")
+        except Exception as e:
+            warning_msg = f"⚠️ 音量調整失敗 (台語 TTS): {str(e)}"
+            print(warning_msg)
+            status_log.append(f"[警告] 音量調整失敗: {str(e)}")
+
+    print("💾 導出 台語 TTS 最終音頻文件...")
+    output = io.BytesIO()
+    combined_segment.export(output, format="mp3")
+    combined_audio = output.getvalue()
+    print(f"🎉 台語 TTS 腳本音頻生成完成！最終大小: {len(combined_audio)} bytes")
+    return combined_audio, "\n".join(status_log)
+
 def save_audio_file(audio_data: bytes) -> str:
     """將音頻數據保存為臨時文件"""
     print("💾 開始保存音頻文件...")
@@ -531,8 +634,9 @@ def process_and_save_audio(
     polly_secret_key,
     polly_region,
     polly_voice,
+    tai_model,
 ):
-    """處理音頻生成並保存文件，支持 OpenAI / Gemini / AWS Polly"""
+    """處理音頻生成並保存文件，支持 OpenAI / Gemini / AWS Polly / 台語 TTS"""
     try:
         if provider == "Gemini TTS":
             key_to_use = gemini_api_key or GEMINI_API_KEY
@@ -551,6 +655,12 @@ def process_and_save_audio(
                 polly_secret_key,
                 polly_region or POLLY_REGION_DEFAULT,
                 polly_voice,
+                volume_boost,
+            )
+        elif provider == "Taiwanese TTS":
+            audio_data, status_log = generate_tai_audio_from_script(
+                script,
+                tai_model or TAI_TTS_MODEL_DEFAULT,
                 volume_boost,
             )
         else:
@@ -579,6 +689,7 @@ def toggle_provider(selected_provider):
     is_openai = selected_provider == "OpenAI TTS"
     is_gemini = selected_provider == "Gemini TTS"
     is_polly = selected_provider == "AWS Polly"
+    is_tai = selected_provider == "Taiwanese TTS"
     return (
         gr.update(visible=is_openai),  # api_key
         gr.update(visible=is_gemini),  # gemini_api_key
@@ -595,6 +706,8 @@ def toggle_provider(selected_provider):
         gr.update(visible=is_polly),   # polly region
         gr.update(visible=is_polly),   # polly voice dropdown
         gr.update(visible=is_polly),   # polly notes
+        gr.update(visible=is_tai),     # tai model
+        gr.update(visible=is_tai),     # tai notes
     )
 
 # Gradio 界面
@@ -646,7 +759,7 @@ speaker-2: 大家好，我是 Cordelia...
                 )
                 provider = gr.Radio(
                     label="TTS 服務 | Provider",
-                    choices=["OpenAI TTS", "Gemini TTS", "AWS Polly"],
+                    choices=["OpenAI TTS", "Gemini TTS", "AWS Polly", "Taiwanese TTS"],
                     value="OpenAI TTS"
                 )
                 with gr.Row():
@@ -697,6 +810,14 @@ speaker-2: 大家好，我是 Cordelia...
                         visible=False
                     )
                 polly_voice_notes = gr.Markdown(POLLY_VOICE_NOTES, visible=False)
+                with gr.Row():
+                    tai_model = gr.Dropdown(
+                        label="台語 TTS 模型 (單一女聲)",
+                        choices=[TAI_TTS_MODEL_DEFAULT],
+                        value=TAI_TTS_MODEL_DEFAULT,
+                        visible=False
+                    )
+                tai_voice_notes = gr.Markdown(TAI_VOICE_NOTES, visible=False)
                 
                 with gr.Row():
                     speaker1_instructions = gr.Textbox(
@@ -753,6 +874,7 @@ speaker-2: 大家好，我是 Cordelia...
                 polly_secret_key,
                 polly_region,
                 polly_voice,
+                tai_model,
             ],
             outputs=[audio_output, status_output]
         )
@@ -776,6 +898,8 @@ speaker-2: 大家好，我是 Cordelia...
                 polly_region,
                 polly_voice,
                 polly_voice_notes,
+                tai_model,
+                tai_voice_notes,
             ],
         )
     return demo

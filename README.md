@@ -12,7 +12,7 @@ short_description: 原tbdavid2019/PDF2podcast拆出的語音生成(2)
 
 # TTS Generator (語音合成器)
 
-這是一個支援 OpenAI TTS 與 Gemini TTS 的語音合成應用程式，可將文字腳本轉換為自然流暢的語音。應用程式支援雙說話者對話，並提供簡潔的網頁界面，適合製作播客、有聲書或對話式內容。
+這是一個支援 OpenAI TTS、Gemini TTS、AWS Polly 與台語 TTS 的語音合成應用程式，可將文字腳本轉換為自然流暢的語音。應用程式支援雙說話者對話，並提供簡潔的網頁界面，適合製作播客、有聲書或對話式內容。
 
 ## 文檔索引
 
@@ -27,14 +27,14 @@ short_description: 原tbdavid2019/PDF2podcast拆出的語音生成(2)
 
 - 🎙️ **雙說話者支援**：可分配不同聲音給兩位說話者，適合對話式內容
 - 🔄 **智能文本優化**：自動合併相同說話者的連續文本，減少API調用次數
-- 🎛️ **多種聲音選項**：OpenAI 聲音 8 種（alloy、echo、fable、onyx、nova、shimmer、coral、sage），Gemini 聲音多組可選（Puck、Aoede、Charon、Fenrir 等）
-- 🎚️ **模型選擇**：OpenAI 支援 gpt-4o-mini-tts、gpt-4o-audio-preview、tts-1、tts-1-hd；Gemini 預設 gemini-2.5-pro-preview-tts
+- 🎛️ **多種聲音選項**：OpenAI 聲音 8 種（alloy、echo、fable、onyx、nova、shimmer、coral、sage），Gemini 聲音多組可選（Puck、Aoede、Charon、Fenrir 等），AWS Polly 中文僅 Zhiyu（女聲，雙說話者共用），台語 TTS 單一女聲
+- 🎚️ **模型選擇**：OpenAI 支援 gpt-4o-mini-tts、gpt-4o-audio-preview、tts-1、tts-1-hd；Gemini 預設 gemini-2.5-pro-preview-tts；Polly 使用 neural 引擎（Zhiyu）；台語 TTS 預設 model6
 - 🎭 **語氣控制**：新增語氣指示功能，可自訂說話者的語氣和風格（如：活潑愉快、專業嚴肅等）
-- 🌐 **友好界面**：基於Gradio的簡潔網頁界面，易於使用，介面可切換 OpenAI / Gemini
+- 🌐 **友好界面**：基於Gradio的簡潔網頁界面，易於使用，介面可切換 OpenAI / Gemini / AWS Polly / 台語 TTS
 - 💾 **自動文件管理**：自動保存生成的音頻並清理過期文件
 - 🔊 **音量調整**：內建音量增益功能，可調整輸出音頻音量
 - 🌍 **API支援**：提供獨立的API服務，支援外部應用程式呼叫
-- 🔑 **環境變量**：支援通過.env文件配置 API 金鑰（OPENAI_API_KEY、GEMINI_API_KEY）
+- 🔑 **環境變量**：支援通過.env文件配置 API 金鑰（OPENAI_API_KEY、GEMINI_API_KEY、AWS_ACCESS_KEY_ID、AWS_SECRET_ACCESS_KEY、AWS_REGION），台語 TTS 無需金鑰
 
 ## 安裝說明
 
@@ -43,6 +43,8 @@ short_description: 原tbdavid2019/PDF2podcast拆出的語音生成(2)
 - Python 3.10+ 建議
 - OpenAI API 金鑰（OpenAI TTS）
 - 可選：Gemini API 金鑰（Gemini TTS）
+- 可選：AWS Access Key / Secret / Region（AWS Polly，中文僅女聲 Zhiyu）
+- 可選：台語 TTS（免金鑰，單一女聲，模型預設 model6）
 - 可選：創建 `.env` 文件存儲 API 金鑰（從 `.env.example` 複製並修改）
 
 ### 安裝步驟
@@ -62,7 +64,7 @@ pip install -r requirements.txt
 # 複製環境變量範本
 cp .env.example .env
 
-# 編輯 .env 文件，添加您的 OpenAI/Gemini API Key
+# 編輯 .env 文件，添加您的 OpenAI/Gemini/AWS 金鑰
 nano .env  # 或使用其他編輯器
 
 # 安裝依賴項
@@ -79,9 +81,13 @@ python app.py
 
 2. 在瀏覽器中打開顯示的URL（通常是 http://127.0.0.1:7860）
 3. 在文本框中輸入您的腳本
-4. 選擇 TTS 服務：OpenAI TTS 或 Gemini TTS
-5. 依服務填入對應的 API Key（或使用 `.env` 的 OPENAI_API_KEY / GEMINI_API_KEY）
-6. 選擇所需的模型與聲音；若用 Gemini，可分別為說話者1/2 指定不同聲音
+4. 選擇 TTS 服務：OpenAI TTS / Gemini TTS / AWS Polly / 台語 TTS
+5. 依服務填入對應的金鑰：
+    - OpenAI：OPENAI_API_KEY
+    - Gemini：GEMINI_API_KEY
+    - AWS Polly：AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION（預設 ap-northeast-1），聲音僅 Zhiyu（中文女聲，雙說話者共用）
+    - 台語 TTS：免金鑰，模型預設 model6，單一女聲（雙說話者共用）
+6. 選擇所需的模型與聲音；Gemini 可分別為說話者1/2 指定不同聲音；Polly 只有 Zhiyu；台語 TTS 單一女聲
 7. 調整音量增益（建議值：6-10 dB），必要時設定語氣指示
 8. 點擊「生成音頻」按鈕
 9. 等待處理完成後，您可以播放或下載生成的音頻
@@ -121,17 +127,20 @@ speaker-1: 繼續對話...
 |------|------|
 | 參數 | 說明 |
 |------|------|
-| TTS 服務 | 選擇 OpenAI TTS 或 Gemini TTS |
-| OpenAI 音頻模型 | gpt-4o-mini-tts（平價推薦）、gpt-4o-audio-preview、tts-1、tts-1-hd |
+| TTS 服務 | 選擇 OpenAI TTS / Gemini TTS / AWS Polly / 台語 TTS |
+| OpenAI 音頻模型 | gpt-4o-mini-tts、gpt-4o-audio-preview、tts-1、tts-1-hd |
 | 說話者1聲音（OpenAI） | 預設 onyx（男聲） |
 | 說話者2聲音（OpenAI） | 預設 nova（女聲） |
 | Gemini 模型 | 預設 gemini-2.5-pro-preview-tts |
 | 說話者1聲音（Gemini） | 預設 Puck（建議男聲） |
 | 說話者2聲音（Gemini） | 預設 Aoede（建議女聲） |
+| Polly 聲音 | 僅 Zhiyu（中文女聲），雙說話者共用 |
 | 語氣指示 | 說話者1/2 的語氣文字，例如「保持活潑愉快」或「用專業嚴肅的口吻」 |
 | 音量增益 | 增加音頻音量的分貝值（dB），建議值：6-10 dB |
-| OpenAI API Key | 您的 OPENAI_API_KEY |
-| Gemini API Key | 您的 GEMINI_API_KEY（使用 Gemini 時必填） |
+| OpenAI API Key | OPENAI_API_KEY |
+| Gemini API Key | GEMINI_API_KEY（使用 Gemini 時必填） |
+| AWS Access/Secret/Region | AWS Polly 所需；Region 預設 ap-northeast-1 |
+| 台語 TTS 模型 | 預設 model6，單一女聲，免金鑰 |
 
 ### 聲音選項與建議
 
@@ -153,6 +162,12 @@ speaker-1: 繼續對話...
 - Alnilam/Algieba: 較舊代號，建議優先使用上列聲音。
 
 **中文建議**：首選組合 Puck (男) + Aoede (女)；若以中文朗讀為主且要穩定，避免使用 Fenrir。
+
+**AWS Polly 聲音（中文）**
+- Zhiyu: 中文女聲，neural 引擎。中文目前僅此聲音，雙說話者會共用。
+
+**台語 TTS 聲音**
+- 單一女聲（免金鑰），模型預設 model6，雙說話者會共用。
 
 ### 語氣指示範例
 
@@ -382,6 +397,8 @@ GET /health
 - gradio: 網頁界面
 - openai: OpenAI API客戶端
 - google-genai: Gemini TTS 客戶端
+- boto3: AWS Polly 客戶端
+- requests: 台語 TTS HTTP 客戶端
 - fastapi: API框架
 - uvicorn: ASGI服務器
 - pydub: 音頻處理
@@ -391,8 +408,8 @@ GET /health
 
 ## 注意事項
 
-- 使用 OpenAI 時需要有效的 OPENAI_API_KEY；使用 Gemini 時需要 GEMINI_API_KEY
-- API使用會產生費用，請參考OpenAI的[價格頁面](https://openai.com/pricing)
+- 使用 OpenAI 時需要 OPENAI_API_KEY；使用 Gemini 時需要 GEMINI_API_KEY；使用 AWS Polly 時需要 AWS_ACCESS_KEY_ID / AWS_SECRET_ACCESS_KEY / AWS_REGION（預設 ap-northeast-1）；台語 TTS 免金鑰
+- API 使用會產生費用，請參考對應供應商價格（OpenAI、Google、AWS）
 - 生成的臨時音頻文件會在24小時後自動刪除
 - 在Hugging Face Space上運行時，app.py會自動啟動，提供Gradio界面
 - 如需API功能，需要單獨運行api.py

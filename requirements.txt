@@ -11,3 +11,4 @@ uvicorn
 python-dotenv
 google-genai
 boto3
+requests
