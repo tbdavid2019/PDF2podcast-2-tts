@@ -40,7 +40,7 @@ short_description: 原tbdavid2019/PDF2podcast拆出的語音生成(2)
 
 ### 前置需求
 
-- Python 3.8+ 建議
+- Python 3.10+ 建議
 - OpenAI API 金鑰（OpenAI TTS）
 - 可選：Gemini API 金鑰（Gemini TTS）
 - 可選：創建 `.env` 文件存儲 API 金鑰（從 `.env.example` 複製並修改）

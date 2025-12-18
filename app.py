@@ -460,6 +460,24 @@ def process_and_save_audio(
         print(error_message)
         return None, error_message
 
+
+def toggle_provider(selected_provider):
+    """切換顯示 OpenAI/Gemini 專屬欄位"""
+    is_openai = selected_provider == "OpenAI TTS"
+    is_gemini = not is_openai
+    return (
+        gr.update(visible=is_openai),  # api_key
+        gr.update(visible=is_gemini),  # gemini_api_key
+        gr.update(visible=is_openai),  # audio_model
+        gr.update(visible=is_openai),  # speaker1_voice
+        gr.update(visible=is_openai),  # speaker2_voice
+        gr.update(visible=is_openai),  # openai voice notes
+        gr.update(visible=is_gemini),  # gemini_model
+        gr.update(visible=is_gemini),  # gemini_voice_speaker1
+        gr.update(visible=is_gemini),  # gemini_voice_speaker2
+        gr.update(visible=is_gemini),  # gemini voice notes
+    )
+
 # Gradio 界面
 def create_gradio_interface():
     with gr.Blocks(title="TTS Generator") as demo:
@@ -484,11 +502,13 @@ speaker-2: 大家好，我是 Cordelia...
                 )
                 api_key = gr.Textbox(
                     label="OpenAI API Key",
-                    type="password"
+                    type="password",
+                    visible=True
                 )
                 gemini_api_key = gr.Textbox(
                     label="Gemini API Key",
-                    type="password"
+                    type="password",
+                    visible=False
                 )
                 provider = gr.Radio(
                     label="TTS 服務 | Provider",
@@ -499,36 +519,42 @@ speaker-2: 大家好，我是 Cordelia...
                     audio_model = gr.Dropdown(
                         label="音頻模型 | Audio Model",
                         choices=STANDARD_AUDIO_MODELS,
-                        value="gpt-4o-mini-tts"
+                        value="gpt-4o-mini-tts",
+                        visible=True
                     )
                     speaker1_voice = gr.Dropdown(
                         label="說話者1聲音 (男角) | Speaker 1 Voice (Male)",
                         choices=STANDARD_VOICES,
-                        value="onyx"
+                        value="onyx",
+                        visible=True
                     )
                     speaker2_voice = gr.Dropdown(
                         label="說話者2聲音 (女角) | Speaker 2 Voice (Female)",
                         choices=STANDARD_VOICES,
-                        value="nova"
+                        value="nova",
+                        visible=True
                     )
-                gr.Markdown(STANDARD_VOICE_NOTES)
+                openai_voice_notes = gr.Markdown(STANDARD_VOICE_NOTES, visible=True)
                 with gr.Row():
                     gemini_model = gr.Dropdown(
                         label="Gemini 模型 | Gemini Model",
                         choices=[GEMINI_MODEL_DEFAULT],
-                        value=GEMINI_MODEL_DEFAULT
+                        value=GEMINI_MODEL_DEFAULT,
+                        visible=False
                     )
                     gemini_voice_speaker1 = gr.Dropdown(
                         label="Gemini 說話者1聲音 | Speaker 1 Voice",
                         choices=GEMINI_VOICES,
-                        value="Puck"
+                        value="Puck",
+                        visible=False
                     )
                     gemini_voice_speaker2 = gr.Dropdown(
                         label="Gemini 說話者2聲音 | Speaker 2 Voice",
                         choices=GEMINI_VOICES,
-                        value="Aoede"
+                        value="Aoede",
+                        visible=False
                     )
-                gr.Markdown(GEMINI_VOICE_NOTES)
+                gemini_voice_notes = gr.Markdown(GEMINI_VOICE_NOTES, visible=False)
                 
                 with gr.Row():
                     speaker1_instructions = gr.Textbox(
@@ -583,6 +609,23 @@ speaker-2: 大家好，我是 Cordelia...
                 gemini_model,
             ],
             outputs=[audio_output, status_output]
+        )
+
+        provider.change(
+            fn=toggle_provider,
+            inputs=provider,
+            outputs=[
+                api_key,
+                gemini_api_key,
+                audio_model,
+                speaker1_voice,
+                speaker2_voice,
+                openai_voice_notes,
+                gemini_model,
+                gemini_voice_speaker1,
+                gemini_voice_speaker2,
+                gemini_voice_notes,
+            ],
         )
     return demo
 
