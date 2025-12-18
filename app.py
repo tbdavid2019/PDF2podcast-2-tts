@@ -300,9 +300,12 @@ def process_and_save_audio(script, api_key, model, voice1, voice2, volume_boost,
 
 # Gradio 界面
 def create_gradio_interface():
-    with gr.Blocks(title="TTS Generator", css="""
-        #header { text-align: center; margin-bottom: 20px; }
-    """) as demo:
+    with gr.Blocks(title="TTS Generator") as demo:
+        gr.Markdown("""
+<style>
+#header { text-align: center; margin-bottom: 20px; }
+</style>
+        """)
         gr.Markdown("# 語音合成器 | TTS Generator", elem_id="header")
         with gr.Row():
             with gr.Column(scale=1):
@@ -367,8 +370,7 @@ speaker-2: 大家好，我是 Cordelia...
                 )
                 status_output = gr.Textbox(
                     label="生成狀態 | Generation Status",
-                    lines=20,
-                    show_copy_button=True
+                    lines=20
                 )
         
         # 事件處理
