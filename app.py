@@ -388,6 +388,10 @@ speaker-2: 大家好，我是 Cordelia...
         )
     return demo
 
+
+demo = create_gradio_interface()
+# Hugging Face Spaces expects a global `app` Gradio interface
+app = demo.queue()
+
 if __name__ == "__main__":
-    demo = create_gradio_interface()
-    demo.launch()
+    app.launch(server_name="0.0.0.0", server_port=7860)
