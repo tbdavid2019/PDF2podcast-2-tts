@@ -4,6 +4,7 @@ from pathlib import Path
 from tempfile import NamedTemporaryFile
 import time
 import gradio as gr
+import boto3
 from openai import OpenAI
 from pydub import AudioSegment
 from dotenv import load_dotenv
@@ -65,6 +66,9 @@ Gemini 聲音備註：
 
 中文建議：首選組合 Puck (男) + Aoede (女)；若中文朗讀為主且要穩定，避免使用 Fenrir。
 """
+POLLY_VOICE_DEFAULT = "Zhiyu"
+POLLY_REGION_DEFAULT = os.getenv("AWS_REGION", "ap-northeast-1")
+POLLY_VOICE_NOTES = "AWS Polly 中文目前僅女聲 Zhiyu，雙說話者將共用此聲音。需要 AWS Access Key / Secret / Region 才能使用。"
 
 # 優化腳本處理 - 合並相同說話者連續文本
 def optimize_script(script):
@@ -178,6 +182,31 @@ def get_mp3(text: str, voice: str, audio_model: str, audio_api_key: str, instruc
         except Exception as e:
             print(f"❌ 音頻生成失敗: {e}")
             raise
+
+
+def get_polly_mp3(text: str, polly_voice: str, polly_region: str, polly_access_key: str = None, polly_secret_key: str = None) -> bytes:
+    """使用 AWS Polly 生成 MP3"""
+    print(f"🎤 Polly 生成音頻: 長度 {len(text)} 字符, 聲音: {polly_voice}, 區域: {polly_region}")
+    client_kwargs = {"region_name": polly_region or POLLY_REGION_DEFAULT}
+    if polly_access_key and polly_secret_key:
+        client_kwargs.update(
+            aws_access_key_id=polly_access_key,
+            aws_secret_access_key=polly_secret_key,
+        )
+    polly = boto3.client("polly", **client_kwargs)
+    try:
+        resp = polly.synthesize_speech(
+            Text=text,
+            OutputFormat="mp3",
+            VoiceId=polly_voice,
+            Engine="neural",
+        )
+        audio_bytes = resp["AudioStream"].read()
+        print(f"✅ Polly 音頻生成完成: {len(audio_bytes)} bytes")
+        return audio_bytes
+    except Exception as e:
+        print(f"❌ Polly 音頻生成失敗: {e}")
+        raise
 
 
 def get_gemini_pcm(text: str, voice: str, gemini_model: str, gemini_api_key: str) -> bytes:
@@ -384,6 +413,77 @@ def generate_gemini_audio_from_script(
     print(f"🎉 Gemini 腳本音頻生成完成！最終大小: {len(combined_audio)} bytes")
     return combined_audio, "\n".join(status_log)
 
+
+def generate_polly_audio_from_script(
+    script: str,
+    polly_access_key: str,
+    polly_secret_key: str,
+    polly_region: str,
+    polly_voice: str = POLLY_VOICE_DEFAULT,
+    volume_boost: float = 0,
+) -> tuple[bytes, str]:
+    print("🎬 開始使用 AWS Polly 從腳本生成音頻")
+    print(f"📜 腳本總長度: {len(script)} 字符")
+    print(f"🎤 聲音: {polly_voice}, 區域: {polly_region}")
+
+    status_log = []
+    optimized_script = optimize_script(script)
+    print(f"✅ 腳本優化完成，共 {len(optimized_script)} 個片段")
+
+    combined_segment = None
+    total_segments = len(optimized_script)
+    print(f"🎵 開始處理 {total_segments} 個音頻片段 (Polly)")
+
+    for i, (speaker, text) in enumerate(optimized_script, 1):
+        print(f"🎭 處理片段 {i}/{total_segments}: {speaker} ({len(text)} 字符)")
+        status_log.append(f"[Polly][{speaker}] {text}")
+
+        try:
+            audio_bytes = get_polly_mp3(text, polly_voice, polly_region, polly_access_key, polly_secret_key)
+
+            with NamedTemporaryFile(suffix=".mp3", delete=False) as temp_file:
+                temp_file.write(audio_bytes)
+                temp_file_path = temp_file.name
+
+            chunk_segment = AudioSegment.from_mp3(temp_file_path)
+            os.unlink(temp_file_path)
+
+            if combined_segment is None:
+                combined_segment = chunk_segment
+                print("🔗 創建第一個 Polly 音頻片段")
+            else:
+                combined_segment += chunk_segment
+                print(f"🔗 已合並 Polly 片段 {i}/{total_segments}")
+        except Exception as e:
+            error_msg = f"❌ Polly 片段 {i} 生成失敗: {str(e)}"
+            print(error_msg)
+            status_log.append(f"[錯誤] 無法生成 Polly 音頻: {str(e)}")
+            raise
+
+    if combined_segment is None:
+        error_msg = "❌ Polly 沒有生成任何音頻"
+        print(error_msg)
+        status_log.append("[錯誤] 沒有生成任何音頻")
+        return b"", "\n".join(status_log)
+
+    if volume_boost > 0:
+        try:
+            print(f"🔊 調整音量 +{volume_boost} dB (Polly)...")
+            combined_segment = combined_segment + volume_boost
+            status_log.append(f"[音量] 已增加 {volume_boost} dB")
+            print("✅ 音量調整完成 (Polly)")
+        except Exception as e:
+            warning_msg = f"⚠️ 音量調整失敗 (Polly): {str(e)}"
+            print(warning_msg)
+            status_log.append(f"[警告] 音量調整失敗: {str(e)}")
+
+    print("💾 導出 Polly 最終音頻文件...")
+    output = io.BytesIO()
+    combined_segment.export(output, format="mp3")
+    combined_audio = output.getvalue()
+    print(f"🎉 Polly 腳本音頻生成完成！最終大小: {len(combined_audio)} bytes")
+    return combined_audio, "\n".join(status_log)
+
 def save_audio_file(audio_data: bytes) -> str:
     """將音頻數據保存為臨時文件"""
     print("💾 開始保存音頻文件...")
@@ -427,8 +527,12 @@ def process_and_save_audio(
     gemini_voice_speaker1,
     gemini_voice_speaker2,
     gemini_model,
+    polly_access_key,
+    polly_secret_key,
+    polly_region,
+    polly_voice,
 ):
-    """處理音頻生成並保存文件，支持 OpenAI 與 Gemini"""
+    """處理音頻生成並保存文件，支持 OpenAI / Gemini / AWS Polly"""
     try:
         if provider == "Gemini TTS":
             key_to_use = gemini_api_key or GEMINI_API_KEY
@@ -438,6 +542,15 @@ def process_and_save_audio(
                 gemini_voice_speaker1,
                 gemini_voice_speaker2,
                 gemini_model,
+                volume_boost,
+            )
+        elif provider == "AWS Polly":
+            audio_data, status_log = generate_polly_audio_from_script(
+                script,
+                polly_access_key,
+                polly_secret_key,
+                polly_region or POLLY_REGION_DEFAULT,
+                polly_voice,
                 volume_boost,
             )
         else:
@@ -464,7 +577,8 @@ def process_and_save_audio(
 def toggle_provider(selected_provider):
     """切換顯示 OpenAI/Gemini 專屬欄位"""
     is_openai = selected_provider == "OpenAI TTS"
-    is_gemini = not is_openai
+    is_gemini = selected_provider == "Gemini TTS"
+    is_polly = selected_provider == "AWS Polly"
     return (
         gr.update(visible=is_openai),  # api_key
         gr.update(visible=is_gemini),  # gemini_api_key
@@ -476,6 +590,11 @@ def toggle_provider(selected_provider):
         gr.update(visible=is_gemini),  # gemini_voice_speaker1
         gr.update(visible=is_gemini),  # gemini_voice_speaker2
         gr.update(visible=is_gemini),  # gemini voice notes
+        gr.update(visible=is_polly),   # polly access key
+        gr.update(visible=is_polly),   # polly secret key
+        gr.update(visible=is_polly),   # polly region
+        gr.update(visible=is_polly),   # polly voice dropdown
+        gr.update(visible=is_polly),   # polly notes
     )
 
 # Gradio 界面
@@ -510,9 +629,24 @@ speaker-2: 大家好，我是 Cordelia...
                     type="password",
                     visible=False
                 )
+                polly_access_key = gr.Textbox(
+                    label="AWS Access Key ID",
+                    type="password",
+                    visible=False
+                )
+                polly_secret_key = gr.Textbox(
+                    label="AWS Secret Access Key",
+                    type="password",
+                    visible=False
+                )
+                polly_region = gr.Textbox(
+                    label="AWS Region",
+                    value=POLLY_REGION_DEFAULT,
+                    visible=False
+                )
                 provider = gr.Radio(
                     label="TTS 服務 | Provider",
-                    choices=["OpenAI TTS", "Gemini TTS"],
+                    choices=["OpenAI TTS", "Gemini TTS", "AWS Polly"],
                     value="OpenAI TTS"
                 )
                 with gr.Row():
@@ -555,6 +689,14 @@ speaker-2: 大家好，我是 Cordelia...
                         visible=False
                     )
                 gemini_voice_notes = gr.Markdown(GEMINI_VOICE_NOTES, visible=False)
+                with gr.Row():
+                    polly_voice = gr.Dropdown(
+                        label="Polly 聲音 (僅中文女聲)",
+                        choices=[POLLY_VOICE_DEFAULT],
+                        value=POLLY_VOICE_DEFAULT,
+                        visible=False
+                    )
+                polly_voice_notes = gr.Markdown(POLLY_VOICE_NOTES, visible=False)
                 
                 with gr.Row():
                     speaker1_instructions = gr.Textbox(
@@ -607,6 +749,10 @@ speaker-2: 大家好，我是 Cordelia...
                 gemini_voice_speaker1,
                 gemini_voice_speaker2,
                 gemini_model,
+                polly_access_key,
+                polly_secret_key,
+                polly_region,
+                polly_voice,
             ],
             outputs=[audio_output, status_output]
         )
@@ -625,6 +771,11 @@ speaker-2: 大家好，我是 Cordelia...
                 gemini_voice_speaker1,
                 gemini_voice_speaker2,
                 gemini_voice_notes,
+                polly_access_key,
+                polly_secret_key,
+                polly_region,
+                polly_voice,
+                polly_voice_notes,
             ],
         )
     return demo
