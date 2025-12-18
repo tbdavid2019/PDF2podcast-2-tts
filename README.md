@@ -12,7 +12,7 @@ short_description: 原tbdavid2019/PDF2podcast拆出的語音生成(2)
 
 # TTS Generator (語音合成器)
 
-這是一個基於OpenAI TTS API的語音合成應用程式，可將文字腳本轉換為自然流暢的語音。應用程式支援雙說話者對話，並提供簡潔的網頁界面，適合製作播客、有聲書或對話式內容。
+這是一個支援 OpenAI TTS 與 Gemini TTS 的語音合成應用程式，可將文字腳本轉換為自然流暢的語音。應用程式支援雙說話者對話，並提供簡潔的網頁界面，適合製作播客、有聲書或對話式內容。
 
 ## 文檔索引
 
@@ -27,22 +27,23 @@ short_description: 原tbdavid2019/PDF2podcast拆出的語音生成(2)
 
 - 🎙️ **雙說話者支援**：可分配不同聲音給兩位說話者，適合對話式內容
 - 🔄 **智能文本優化**：自動合併相同說話者的連續文本，減少API調用次數
-- 🎛️ **多種聲音選項**：支援OpenAI的全部8種TTS聲音（alloy、echo、fable、onyx、nova、shimmer、coral、sage）
-- 🎚️ **模型選擇**：支援最新的gpt-4o-mini-tts（平價版）、gpt-4o-audio-preview，以及標準的tts-1和tts-1-hd音頻模型
+- 🎛️ **多種聲音選項**：OpenAI 聲音 8 種（alloy、echo、fable、onyx、nova、shimmer、coral、sage），Gemini 聲音多組可選（Puck、Aoede、Charon、Fenrir 等）
+- 🎚️ **模型選擇**：OpenAI 支援 gpt-4o-mini-tts、gpt-4o-audio-preview、tts-1、tts-1-hd；Gemini 預設 gemini-2.5-pro-preview-tts
 - 🎭 **語氣控制**：新增語氣指示功能，可自訂說話者的語氣和風格（如：活潑愉快、專業嚴肅等）
-- 🌐 **友好界面**：基於Gradio的簡潔網頁界面，易於使用
+- 🌐 **友好界面**：基於Gradio的簡潔網頁界面，易於使用，介面可切換 OpenAI / Gemini
 - 💾 **自動文件管理**：自動保存生成的音頻並清理過期文件
 - 🔊 **音量調整**：內建音量增益功能，可調整輸出音頻音量
 - 🌍 **API支援**：提供獨立的API服務，支援外部應用程式呼叫
-- 🔑 **環境變量**：支援通過.env文件配置API金鑰
+- 🔑 **環境變量**：支援通過.env文件配置 API 金鑰（OPENAI_API_KEY、GEMINI_API_KEY）
 
 ## 安裝說明
 
 ### 前置需求
 
-- Python 3.7+
-- OpenAI API金鑰（需要啟用TTS功能）
-- 可選：創建`.env`文件存儲API金鑰（從`.env.example`複製並修改）
+- Python 3.8+ 建議
+- OpenAI API 金鑰（OpenAI TTS）
+- 可選：Gemini API 金鑰（Gemini TTS）
+- 可選：創建 `.env` 文件存儲 API 金鑰（從 `.env.example` 複製並修改）
 
 ### 安裝步驟
 
@@ -61,7 +62,7 @@ pip install -r requirements.txt
 # 複製環境變量範本
 cp .env.example .env
 
-# 編輯 .env 文件，添加您的 OpenAI API Key
+# 編輯 .env 文件，添加您的 OpenAI/Gemini API Key
 nano .env  # 或使用其他編輯器
 
 # 安裝依賴項
@@ -78,11 +79,12 @@ python app.py
 
 2. 在瀏覽器中打開顯示的URL（通常是 http://127.0.0.1:7860）
 3. 在文本框中輸入您的腳本
-4. 輸入您的OpenAI API金鑰（或預先在`.env`文件中配置）
-5. 選擇所需的音頻模型和說話者聲音
-6. 調整音量增益（建議值：6-10 dB）
-7. 點擊「生成音頻」按鈕
-8. 等待處理完成後，您可以播放或下載生成的音頻
+4. 選擇 TTS 服務：OpenAI TTS 或 Gemini TTS
+5. 依服務填入對應的 API Key（或使用 `.env` 的 OPENAI_API_KEY / GEMINI_API_KEY）
+6. 選擇所需的模型與聲音；若用 Gemini，可分別為說話者1/2 指定不同聲音
+7. 調整音量增益（建議值：6-10 dB），必要時設定語氣指示
+8. 點擊「生成音頻」按鈕
+9. 等待處理完成後，您可以播放或下載生成的音頻
 
 ### 通過API使用 (api.py)
 
@@ -117,24 +119,40 @@ speaker-1: 繼續對話...
 
 | 參數 | 說明 |
 |------|------|
-| 音頻模型 | 選擇TTS模型：gpt-4o-mini-tts（平價推薦）、gpt-4o-audio-preview、tts-1（標準）或tts-1-hd（高清） |
-| 說話者1聲音（男角） | 第一位說話者使用的聲音，預設為onyx（男聲） |
-| 說話者2聲音（女角） | 第二位說話者使用的聲音，預設為nova（女聲） |
-| 說話者1語氣 | 第一位說話者的語氣指示，例如："保持活潑愉快的語氣"、"用專業嚴肅的口吻說話"等 |
-| 說話者2語氣 | 第二位說話者的語氣指示，例如："保持活潑愉快的語氣"、"用專業嚴肅的口吻說話"等 |
+| 參數 | 說明 |
+|------|------|
+| TTS 服務 | 選擇 OpenAI TTS 或 Gemini TTS |
+| OpenAI 音頻模型 | gpt-4o-mini-tts（平價推薦）、gpt-4o-audio-preview、tts-1、tts-1-hd |
+| 說話者1聲音（OpenAI） | 預設 onyx（男聲） |
+| 說話者2聲音（OpenAI） | 預設 nova（女聲） |
+| Gemini 模型 | 預設 gemini-2.5-pro-preview-tts |
+| 說話者1聲音（Gemini） | 預設 Puck（建議男聲） |
+| 說話者2聲音（Gemini） | 預設 Aoede（建議女聲） |
+| 語氣指示 | 說話者1/2 的語氣文字，例如「保持活潑愉快」或「用專業嚴肅的口吻」 |
 | 音量增益 | 增加音頻音量的分貝值（dB），建議值：6-10 dB |
-| OpenAI API Key | 您的OpenAI API金鑰 |
+| OpenAI API Key | 您的 OPENAI_API_KEY |
+| Gemini API Key | 您的 GEMINI_API_KEY（使用 Gemini 時必填） |
 
-### 支援的聲音選項
+### 聲音選項與建議
 
-- **alloy** - 中性音色
-- **echo** - 男性音色
-- **fable** - 英式口音
-- **onyx** - 深沉男聲（男角預設）
-- **nova** - 女性音色（女角預設）
-- **shimmer** - 溫暖女聲
-- **coral** - 活潑女聲（新增）
-- **sage** - 成熟男聲（新增）
+**OpenAI 聲音**
+- alloy: 中性平衡，對話感自然，通用。
+- echo: 低沉男聲，穩重，適合旁白/正式說明。
+- fable: 溫暖敘事感，適合故事/有聲書。
+- onyx: 清晰沉穩男聲，較正式，適合說明/主持。
+- nova: 友好女聲，明亮自然，適合對話互動。
+- shimmer: 柔和女聲，親切溫暖，適合客服/陪伴。
+- coral: 活潑女聲，帶能量感，適合行銷/短視頻。
+- sage: 成熟男聲，穩健理性，適合新聞/解說。
+
+**Gemini 聲音**
+- Puck: 自然、中音、對話感強，中文咬字清楚、外國腔較少（男聲首選）。
+- Aoede: 中文咬字清楚、外國腔較少（女聲首選）。
+- Charon: 低沉穩重、帶權威感，適合新聞播報/嚴肅公告/懸疑。
+- Fenrir: 高亢有活力、語速偏快，中文時有時忽快忽慢，除非要激動效果，建議避開。
+- Alnilam/Algieba: 較舊代號，建議優先使用上列聲音。
+
+**中文建議**：首選組合 Puck (男) + Aoede (女)；若以中文朗讀為主且要穩定，避免使用 Fenrir。
 
 ### 語氣指示範例
 
@@ -363,6 +381,7 @@ GET /health
 
 - gradio: 網頁界面
 - openai: OpenAI API客戶端
+- google-genai: Gemini TTS 客戶端
 - fastapi: API框架
 - uvicorn: ASGI服務器
 - pydub: 音頻處理
@@ -372,7 +391,7 @@ GET /health
 
 ## 注意事項
 
-- 使用此應用程式需要有效的OpenAI API金鑰
+- 使用 OpenAI 時需要有效的 OPENAI_API_KEY；使用 Gemini 時需要 GEMINI_API_KEY
 - API使用會產生費用，請參考OpenAI的[價格頁面](https://openai.com/pricing)
 - 生成的臨時音頻文件會在24小時後自動刪除
 - 在Hugging Face Space上運行時，app.py會自動啟動，提供Gradio界面

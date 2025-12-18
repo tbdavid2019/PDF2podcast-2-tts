@@ -9,3 +9,4 @@ pydub
 fastapi
 uvicorn
 python-dotenv
+google-genai

@@ -7,12 +7,15 @@ import gradio as gr
 from openai import OpenAI
 from pydub import AudioSegment
 from dotenv import load_dotenv
+from google import genai
+from google.genai import types
 
 # 加載環境變量
 load_dotenv()
 
 # 獲取 OpenAI API Key (如果在環境變量中設置了)
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 
 # 標準音頻模型和聲音選項
 STANDARD_AUDIO_MODELS = [
@@ -31,6 +34,37 @@ STANDARD_VOICES = [
     "coral",
     "sage",
 ]
+STANDARD_VOICE_NOTES = """
+OpenAI 聲音備註：
+- alloy: 中性平衡，對話感自然，通用場景。
+- echo: 低沉男聲，較穩重，適合旁白或正式說明。
+- fable: 溫暖敘事感，適合故事/有聲書。
+- onyx: 清晰沉穩男聲，較正式，適合說明/主持。
+- nova: 友好女聲，明亮自然，適合對話互動。
+- shimmer: 柔和女聲，親切溫暖，適合客服/陪伴。
+- coral: 活潑女聲，帶能量感，適合行銷/短視頻。
+- sage: 成熟男聲，穩健理性，適合新聞/解說。
+"""
+GEMINI_MODEL_DEFAULT = "gemini-2.5-pro-preview-tts"
+GEMINI_VOICES = [
+    "Puck",
+    "Charon",
+    "Fenrir",
+    "Alnilam",
+    "Aoede",
+    "Algieba",
+]
+GEMINI_SAMPLE_RATE = 24000
+GEMINI_VOICE_NOTES = """
+Gemini 聲音備註：
+- Puck: 自然、中音、對話感強，適合一般對話。中文咬字清楚，外國腔較少。
+- Charon: 低沉穩重、帶權威感，適合新聞播報/嚴肅公告/懸疑。
+- Fenrir: 高亢有活力、語速偏快，適合遊戲旁白或激動解說。講中文時語速有時忽快忽慢，除非要激動效果，建議避開。
+- Aoede: 建議女聲首選，中文咬字清楚、外國腔較少。
+- Alnilam/Algieba: 舊版常見的名稱；在 gemini-2.5 系列建議優先用 Puck/Aoede/Charon/Fenrir。
+
+中文建議：首選組合 Puck (男) + Aoede (女)；若中文朗讀為主且要穩定，避免使用 Fenrir。
+"""
 
 # 優化腳本處理 - 合並相同說話者連續文本
 def optimize_script(script):
@@ -145,6 +179,35 @@ def get_mp3(text: str, voice: str, audio_model: str, audio_api_key: str, instruc
             print(f"❌ 音頻生成失敗: {e}")
             raise
 
+
+def get_gemini_pcm(text: str, voice: str, gemini_model: str, gemini_api_key: str) -> bytes:
+    """使用 Gemini TTS 生成原始 PCM 音頻 (24kHz mono)"""
+    if not gemini_api_key:
+        raise ValueError("缺少 Gemini API Key")
+    print(f"🎤 Gemini 生成音頻: 長度 {len(text)} 字符, 聲音: {voice}, 模型: {gemini_model}")
+
+    client = genai.Client(api_key=gemini_api_key)
+    config = types.GenerateContentConfig(
+        response_modalities=["audio"],
+        speech_config=types.SpeechConfig(
+            voice_config=types.VoiceConfig(
+                prebuilt_voice_config=types.PrebuiltVoiceConfig(voice_name=voice)
+            )
+        ),
+    )
+
+    response = client.models.generate_content(
+        model=gemini_model,
+        contents=[types.Content(role="user", parts=[types.Part.from_text(text=text)])],
+        config=config,
+    )
+
+    if response.candidates:
+        for part in response.candidates[0].content.parts:
+            if part.inline_data and part.inline_data.data:
+                return part.inline_data.data
+    raise RuntimeError("未能取得 Gemini 音頻輸出")
+
 def generate_audio_from_script(
     script: str,
     audio_api_key: str,
@@ -249,6 +312,78 @@ def generate_audio_from_script(
     print(f"🎉 腳本音頻生成完成！最終大小: {len(combined_audio)} bytes")
     return combined_audio, "\n".join(status_log)
 
+
+def generate_gemini_audio_from_script(
+    script: str,
+    gemini_api_key: str,
+    gemini_voice_speaker1: str = "Puck",
+    gemini_voice_speaker2: str = "Aoede",
+    gemini_model: str = GEMINI_MODEL_DEFAULT,
+    volume_boost: float = 0,
+) -> tuple[bytes, str]:
+    print("🎬 開始使用 Gemini 從腳本生成音頻")
+    print(f"📜 腳本總長度: {len(script)} 字符")
+    print(f"🎤 聲音: 說話者1={gemini_voice_speaker1}, 說話者2={gemini_voice_speaker2}, 模型: {gemini_model}")
+
+    status_log = []
+    optimized_script = optimize_script(script)
+    print(f"✅ 腳本優化完成，共 {len(optimized_script)} 個片段")
+
+    combined_segment = None
+    total_segments = len(optimized_script)
+    print(f"🎵 開始處理 {total_segments} 個音頻片段 (Gemini)")
+
+    for i, (speaker, text) in enumerate(optimized_script, 1):
+        print(f"🎭 處理片段 {i}/{total_segments}: {speaker} ({len(text)} 字符)")
+        status_log.append(f"[Gemini][{speaker}] {text}")
+
+        try:
+            voice_to_use = gemini_voice_speaker1 if speaker == "speaker-1" else gemini_voice_speaker2
+            pcm_bytes = get_gemini_pcm(text, voice_to_use, gemini_model, gemini_api_key)
+
+            chunk_segment = AudioSegment(
+                data=pcm_bytes,
+                sample_width=2,
+                frame_rate=GEMINI_SAMPLE_RATE,
+                channels=1,
+            )
+
+            if combined_segment is None:
+                combined_segment = chunk_segment
+                print("🔗 創建第一個 Gemini 音頻片段")
+            else:
+                combined_segment += chunk_segment
+                print(f"🔗 已合並 Gemini 片段 {i}/{total_segments}")
+        except Exception as e:
+            error_msg = f"❌ Gemini 片段 {i} 生成失敗: {str(e)}"
+            print(error_msg)
+            status_log.append(f"[錯誤] 無法生成 Gemini 音頻: {str(e)}")
+            raise
+
+    if combined_segment is None:
+        error_msg = "❌ Gemini 沒有生成任何音頻"
+        print(error_msg)
+        status_log.append("[錯誤] 沒有生成任何音頻")
+        return b"", "\n".join(status_log)
+
+    if volume_boost > 0:
+        try:
+            print(f"🔊 調整音量 +{volume_boost} dB (Gemini)...")
+            combined_segment = combined_segment + volume_boost
+            status_log.append(f"[音量] 已增加 {volume_boost} dB")
+            print("✅ 音量調整完成 (Gemini)")
+        except Exception as e:
+            warning_msg = f"⚠️ 音量調整失敗 (Gemini): {str(e)}"
+            print(warning_msg)
+            status_log.append(f"[警告] 音量調整失敗: {str(e)}")
+
+    print("💾 導出 Gemini 最終音頻文件...")
+    output = io.BytesIO()
+    combined_segment.export(output, format="mp3")
+    combined_audio = output.getvalue()
+    print(f"🎉 Gemini 腳本音頻生成完成！最終大小: {len(combined_audio)} bytes")
+    return combined_audio, "\n".join(status_log)
+
 def save_audio_file(audio_data: bytes) -> str:
     """將音頻數據保存為臨時文件"""
     print("💾 開始保存音頻文件...")
@@ -278,19 +413,46 @@ def save_audio_file(audio_data: bytes) -> str:
     print(f"✅ 音頻文件已保存: {temp_file.name} ({len(audio_data)} bytes)")
     return temp_file.name
 
-def process_and_save_audio(script, api_key, model, voice1, voice2, volume_boost, instr1, instr2):
-    """處理音頻生成並保存文件"""
+def process_and_save_audio(
+    script,
+    api_key,
+    gemini_api_key,
+    provider,
+    model,
+    voice1,
+    voice2,
+    volume_boost,
+    instr1,
+    instr2,
+    gemini_voice_speaker1,
+    gemini_voice_speaker2,
+    gemini_model,
+):
+    """處理音頻生成並保存文件，支持 OpenAI 與 Gemini"""
     try:
-        audio_data, status_log = generate_audio_from_script(
-            script,
-            api_key,
-            model,
-            voice1,
-            voice2,
-            volume_boost,
-            instr1,
-            instr2
-        )
+        if provider == "Gemini TTS":
+            key_to_use = gemini_api_key or GEMINI_API_KEY
+            audio_data, status_log = generate_gemini_audio_from_script(
+                script,
+                key_to_use,
+                gemini_voice_speaker1,
+                gemini_voice_speaker2,
+                gemini_model,
+                volume_boost,
+            )
+        else:
+            key_to_use = api_key or OPENAI_API_KEY
+            audio_data, status_log = generate_audio_from_script(
+                script,
+                key_to_use,
+                model,
+                voice1,
+                voice2,
+                volume_boost,
+                instr1,
+                instr2,
+            )
+
         audio_path = save_audio_file(audio_data)
         return audio_path, status_log
     except Exception as e:
@@ -324,6 +486,15 @@ speaker-2: 大家好，我是 Cordelia...
                     label="OpenAI API Key",
                     type="password"
                 )
+                gemini_api_key = gr.Textbox(
+                    label="Gemini API Key",
+                    type="password"
+                )
+                provider = gr.Radio(
+                    label="TTS 服務 | Provider",
+                    choices=["OpenAI TTS", "Gemini TTS"],
+                    value="OpenAI TTS"
+                )
                 with gr.Row():
                     audio_model = gr.Dropdown(
                         label="音頻模型 | Audio Model",
@@ -340,17 +511,37 @@ speaker-2: 大家好，我是 Cordelia...
                         choices=STANDARD_VOICES,
                         value="nova"
                     )
+                gr.Markdown(STANDARD_VOICE_NOTES)
+                with gr.Row():
+                    gemini_model = gr.Dropdown(
+                        label="Gemini 模型 | Gemini Model",
+                        choices=[GEMINI_MODEL_DEFAULT],
+                        value=GEMINI_MODEL_DEFAULT
+                    )
+                    gemini_voice_speaker1 = gr.Dropdown(
+                        label="Gemini 說話者1聲音 | Speaker 1 Voice",
+                        choices=GEMINI_VOICES,
+                        value="Puck"
+                    )
+                    gemini_voice_speaker2 = gr.Dropdown(
+                        label="Gemini 說話者2聲音 | Speaker 2 Voice",
+                        choices=GEMINI_VOICES,
+                        value="Aoede"
+                    )
+                gr.Markdown(GEMINI_VOICE_NOTES)
                 
                 with gr.Row():
                     speaker1_instructions = gr.Textbox(
                         label="說話者1語氣 | Speaker 1 Instructions",
                         value="保持活潑愉快的語氣",
-                        placeholder="例如:保持活潑愉快的語氣、用專業嚴肅的口吻說話等"
+                        placeholder="例如:保持活潑愉快的語氣、用專業嚴肅的口吻說話等",
+                        lines=4
                     )
                     speaker2_instructions = gr.Textbox(
                         label="說話者2語氣 | Speaker 2 Instructions",
                         value="保持活潑愉快的語氣",
-                        placeholder="例如:保持活潑愉快的語氣、用專業嚴肅的口吻說話等"
+                        placeholder="例如:保持活潑愉快的語氣、用專業嚴肅的口吻說話等",
+                        lines=4
                     )
                 
                 volume_boost = gr.Slider(
@@ -369,7 +560,7 @@ speaker-2: 大家好，我是 Cordelia...
                     type="filepath"
                 )
                 status_output = gr.Textbox(
-                    label="生成狀態 | Generation Status",
+                    label="生成日誌 | Generation Log",
                     lines=20
                 )
         
@@ -379,12 +570,17 @@ speaker-2: 大家好，我是 Cordelia...
             inputs=[
                 script_input,
                 api_key,
+                gemini_api_key,
+                provider,
                 audio_model,
                 speaker1_voice,
                 speaker2_voice,
                 volume_boost,
                 speaker1_instructions,
-                speaker2_instructions
+                speaker2_instructions,
+                gemini_voice_speaker1,
+                gemini_voice_speaker2,
+                gemini_model,
             ],
             outputs=[audio_output, status_output]
         )
