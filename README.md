@@ -135,14 +135,43 @@ speaker-1: 今天我們要聊...
 
 ## 🔌 API 服務（進階）
 
-### 啟動 API
+本專案提供 FastAPI REST API，支援所有 4 種 TTS provider，可供程式化調用。
+
+### 啟動 API 服務
 
 ```bash
 python api.py
-# 訪問 http://localhost:8000/docs 查看 Swagger 文檔
+# 訪問 http://localhost:8000/docs 查看 Swagger 互動文檔
 ```
 
-### 基本調用
+### 核心端點
+
+| 端點 | 方法 | 說明 |
+|------|------|------|
+| `/generate-audio` | POST | 生成語音音頻 |
+| `/options` | GET | 查詢所有 provider 的可用選項 |
+| `/audio/{filename}` | GET | 下載已生成的音頻文件 |
+| `/health` | GET | API 健康檢查 |
+
+---
+
+### 📌 OpenAI TTS 調用
+
+```bash
+curl -X POST "http://localhost:8000/generate-audio" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "script": "speaker-1: 歡迎收聽！\nspeaker-2: 很高興來到這裡。",
+    "provider": "openai",
+    "api_key": "sk-...",
+    "speaker1_voice": "onyx",
+    "speaker2_voice": "nova",
+    "speaker1_instructions": "保持活潑愉快的語氣",
+    "volume_boost": 6.0
+  }' --output audio.mp3
+```
+
+**Python 範例**：
 
 ```python
 import requests
@@ -151,7 +180,11 @@ response = requests.post(
     "http://localhost:8000/generate-audio",
     json={
         "script": "speaker-1: 你好！\nspeaker-2: 你好啊！",
-        "api_key": "your_openai_api_key"
+        "provider": "openai",
+        "api_key": "your_openai_api_key",
+        "model": "gpt-4o-mini-tts",
+        "speaker1_voice": "onyx",
+        "speaker2_voice": "nova"
     }
 )
 
@@ -159,21 +192,210 @@ with open("output.mp3", "wb") as f:
     f.write(response.content)
 ```
 
-### API 參數
+---
+
+### 📌 Gemini TTS 調用
+
+```bash
+curl -X POST "http://localhost:8000/generate-audio" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "script": "speaker-1: 你好！\nspeaker-2: 你好啊！",
+    "provider": "gemini",
+    "gemini_api_key": "your_gemini_api_key",
+    "gemini_male_voice": "Puck",
+    "gemini_female_voice": "Aoede",
+    "volume_boost": 6.0
+  }' --output audio.mp3
+```
+
+**Python 範例**：
+
+```python
+response = requests.post(
+    "http://localhost:8000/generate-audio",
+    json={
+        "script": "speaker-1: 今天天氣真好！\nspeaker-2: 是啊，適合出去走走。",
+        "provider": "gemini",
+        "gemini_api_key": "your_gemini_key",
+        "gemini_male_voice": "Puck",
+        "gemini_female_voice": "Aoede"
+    }
+)
+
+with open("gemini_audio.mp3", "wb") as f:
+    f.write(response.content)
+```
+
+---
+
+### 📌 AWS Polly 調用
+
+```bash
+curl -X POST "http://localhost:8000/generate-audio" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "script": "speaker-1: 你好！\nspeaker-2: 你好啊！",
+    "provider": "polly",
+    "aws_access_key": "your_access_key",
+    "aws_secret_key": "your_secret_key",
+    "aws_region": "ap-northeast-1",
+    "polly_voice": "Zhiyu",
+    "volume_boost": 6.0
+  }' --output audio.mp3
+```
+
+**Python 範例**：
+
+```python
+response = requests.post(
+    "http://localhost:8000/generate-audio",
+    json={
+        "script": "speaker-1: 歡迎使用 AWS Polly！",
+        "provider": "polly",
+        "aws_access_key": "your_key",
+        "aws_secret_key": "your_secret",
+        "aws_region": "ap-northeast-1",
+        "polly_voice": "Zhiyu"
+    }
+)
+
+with open("polly_audio.mp3", "wb") as f:
+    f.write(response.content)
+```
+
+---
+
+### 📌 台語 TTS 調用（免金鑰）
+
+```bash
+curl -X POST "http://localhost:8000/generate-audio" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "script": "speaker-1: 你好！\nspeaker-2: 你好啊！",
+    "provider": "taiwanese",
+    "tai_model": "model6",
+    "volume_boost": 6.0
+  }' --output audio.mp3
+```
+
+**Python 範例**：
+
+```python
+response = requests.post(
+    "http://localhost:8000/generate-audio",
+    json={
+        "script": "speaker-1: 今仔日天氣真好！",
+        "provider": "taiwanese",
+        "tai_model": "model6"
+    }
+)
+
+with open("taiwanese_audio.mp3", "wb") as f:
+    f.write(response.content)
+```
+
+---
+
+### 🔄 返回 URL 模式
+
+設定 `return_url: true` 可獲取音頻 URL 而非直接下載：
+
+```python
+response = requests.post(
+    "http://localhost:8000/generate-audio",
+    json={
+        "script": "speaker-1: 測試音頻。",
+        "provider": "openai",
+        "api_key": "sk-...",
+        "return_url": True
+    }
+)
+
+result = response.json()
+print(result)
+# {
+#   "status": "success",
+#   "provider": "openai",
+#   "audio_url": "/audio/tmpXXX.mp3",
+#   "logs": ["[speaker-1] 測試音頻。", ...]
+# }
+
+# 下載音頻
+audio_url = f"http://localhost:8000{result['audio_url']}"
+audio = requests.get(audio_url)
+with open("audio.mp3", "wb") as f:
+    f.write(audio.content)
+```
+
+---
+
+### 📊 查詢可用選項
+
+```bash
+curl http://localhost:8000/options
+```
+
+**回應範例**：
+
+```json
+{
+  "providers": ["openai", "gemini", "polly", "taiwanese"],
+  "openai": {
+    "models": ["gpt-4o-mini-tts", "gpt-4o-audio-preview", "tts-1", "tts-1-hd"],
+    "voices": ["alloy", "echo", "fable", "onyx", "nova", "shimmer", "coral", "sage"]
+  },
+  "gemini": {
+    "voices": ["Puck", "Charon", "Kore", "Fenrir", "Aoede", "Alnilam", "Algieba"]
+  },
+  "polly": {
+    "voices": ["Zhiyu"]
+  },
+  "taiwanese": {
+    "models": ["model6"]
+  }
+}
+```
+
+---
+
+### 🔑 API 參數總覽
 
 | 參數 | 類型 | 必填 | 預設 | 說明 |
 |------|------|------|------|------|
-| `script` | string | ✅ | - | 對話腳本 |
+| **通用參數** | | | | |
+| `script` | string | ✅ | - | 對話腳本（支援 speaker-1/speaker-2 標記） |
+| `provider` | string | - | `openai` | TTS 服務商：openai/gemini/polly/taiwanese |
+| `volume_boost` | float | - | `6.0` | 音量增益 (0-20 dB) |
+| `return_url` | boolean | - | `false` | 是否返回 URL 而非直接下載 |
+| **OpenAI 專用** | | | | |
 | `api_key` | string | - | 環境變數 | OpenAI API Key |
-| `model` | string | - | gpt-4o-mini-tts | 模型名稱 |
-| `speaker1_voice` | string | - | onyx | 說話者1聲音 |
-| `speaker2_voice` | string | - | nova | 說話者2聲音 |
-| `volume_boost` | float | - | 6.0 | 音量增益 (dB) |
-| `return_url` | boolean | - | false | 是否返回 URL |
+| `model` | string | - | `gpt-4o-mini-tts` | 模型名稱 |
+| `speaker1_voice` | string | - | `onyx` | 說話者1聲音 |
+| `speaker2_voice` | string | - | `nova` | 說話者2聲音 |
+| `speaker1_instructions` | string | - | "保持活潑愉快的語氣" | 說話者1語氣指示 |
+| `speaker2_instructions` | string | - | "保持活潑愉快的語氣" | 說話者2語氣指示 |
+| **Gemini 專用** | | | | |
+| `gemini_api_key` | string | - | 環境變數 | Gemini API Key |
+| `gemini_male_voice` | string | - | `Puck` | 男聲選項 |
+| `gemini_female_voice` | string | - | `Aoede` | 女聲選項 |
+| **AWS Polly 專用** | | | | |
+| `aws_access_key` | string | - | 環境變數 | AWS Access Key ID |
+| `aws_secret_key` | string | - | 環境變數 | AWS Secret Access Key |
+| `aws_region` | string | - | `ap-northeast-1` | AWS 區域 |
+| `polly_voice` | string | - | `Zhiyu` | Polly 聲音（僅 Zhiyu） |
+| **台語 TTS 專用** | | | | |
+| `tai_model` | string | - | `model6` | 台語模型（僅 model6） |
 
-**API 文檔**：
-- Swagger UI: `http://localhost:8000/docs`
-- ReDoc: `http://localhost:8000/redoc`
+---
+
+### 🛠️ API 文檔
+
+啟動服務後可訪問：
+
+- **Swagger UI**（互動測試）: http://localhost:8000/docs
+- **ReDoc**（API 文檔）: http://localhost:8000/redoc
+- **健康檢查**: http://localhost:8000/health
 
 ## 🛠️ 技術架構
 
